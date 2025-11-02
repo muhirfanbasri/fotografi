@@ -3,7 +3,7 @@
  <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Model Portfolio</title>
+  <title>Fotografi BBPPMVSB</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/_sdk/element_sdk.js"></script>
   <style>
@@ -27,6 +27,18 @@
       transform: translateY(-8px);
       box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
     }
+
+    /* draggable focal point helpers for carousel images */
+    .carousel-slide img {
+      cursor: grab;
+      touch-action: none; /* for pointer events */
+    }
+
+    .carousel-slide img.dragging {
+      cursor: grabbing;
+    }
+
+    /* hint removed per user request */
 
 
   </style>
@@ -63,11 +75,11 @@
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"><!-- Portfolio Card 1 -->
   <div class="card-hover bg-white rounded-lg overflow-hidden shadow-lg">
   <div class="h-64 bg-gradient-to-br from-pink-400 to-purple-500">
-  <img src="7.jpg" alt="Portfolio" class="w-full h-full object-cover" loading="lazy" />
+  <img src="i.jpg" alt="Portfolio" class="w-full h-full object-cover" loading="lazy" />
   </div>
       <div class="p-6">
-       <h3 class="text-xl font-bold mb-2 text-gray-800">Fashion Editorial</h3>
-  <p class="text-gray-600 mb-4">Vogue Magazine 2024</p><a href="https://www.canva.com/" target="_blank" rel="noopener noreferrer" class="w-full inline-block text-center bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-300">View Details</a>
+       <h3 class="text-xl font-bold mb-2 text-gray-800">Muh. Irfan Basri</h3>
+  <p class="text-gray-600 mb-4">SMKN 7 Bone</p><a href="slide.html" target="_blank" rel="noopener noreferrer" class="w-full inline-block text-center bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-300">View Details</a>
       </div>
      </div><!-- Portfolio Card 2 -->
   <div class="card-hover bg-white rounded-lg overflow-hidden shadow-lg">
@@ -76,7 +88,7 @@
   </div>
       <div class="p-6">
        <h3 class="text-xl font-bold mb-2 text-gray-800">Runway Show</h3>
-  <p class="text-gray-600 mb-4">Paris Fashion Week</p><a href="https://www.canva.com/" target="_blank" rel="noopener noreferrer" class="w-full inline-block text-center bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-300">View Details</a>
+  <p class="text-gray-600 mb-4">Paris Fashion Week</p><a href="#/" target="_blank" rel="noopener noreferrer" class="w-full inline-block text-center bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-300">View Details</a>
       </div>
      </div><!-- Portfolio Card 3 -->
   <div class="card-hover bg-white rounded-lg overflow-hidden shadow-lg">
@@ -85,7 +97,7 @@
   </div>
       <div class="p-6">
        <h3 class="text-xl font-bold mb-2 text-gray-800">Beauty Campaign</h3>
-  <p class="text-gray-600 mb-4">Luxury Cosmetics Brand</p><a href="https://www.canva.com/" target="_blank" rel="noopener noreferrer" class="w-full inline-block text-center bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-300">View Details</a>
+  <p class="text-gray-600 mb-4">Luxury Cosmetics Brand</p><a href="#/" target="_blank" rel="noopener noreferrer" class="w-full inline-block text-center bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-300">View Details</a>
       </div>
      </div><!-- Portfolio Card 4 -->
   <div class="card-hover bg-white rounded-lg overflow-hidden shadow-lg">
@@ -94,7 +106,7 @@
   </div>
       <div class="p-6">
        <h3 class="text-xl font-bold mb-2 text-gray-800">Commercial Shoot</h3>
-  <p class="text-gray-600 mb-4">International Brand</p><a href="https://www.canva.com/" target="_blank" rel="noopener noreferrer" class="w-full inline-block text-center bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-300">View Details</a>
+  <p class="text-gray-600 mb-4">International Brand</p><a href="#/" target="_blank" rel="noopener noreferrer" class="w-full inline-block text-center bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-300">View Details</a>
       </div>
      </div><!-- Portfolio Card 5 -->
   <div class="card-hover bg-white rounded-lg overflow-hidden shadow-lg">
@@ -103,7 +115,7 @@
   </div>
       <div class="p-6">
        <h3 class="text-xl font-bold mb-2 text-gray-800">Magazine Cover</h3>
-  <p class="text-gray-600 mb-4">Elle Magazine</p><a href="https://www.canva.com/" target="_blank" rel="noopener noreferrer" class="w-full inline-block text-center bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-300">View Details</a>
+  <p class="text-gray-600 mb-4">Elle Magazine</p><a href="#/" target="_blank" rel="noopener noreferrer" class="w-full inline-block text-center bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-300">View Details</a>
       </div>
      </div><!-- Portfolio Card 6 -->
   <div class="card-hover bg-white rounded-lg overflow-hidden shadow-lg">
@@ -112,7 +124,7 @@
   </div>
       <div class="p-6">
        <h3 class="text-xl font-bold mb-2 text-gray-800">Designer Collection</h3>
-  <p class="text-gray-600 mb-4">Milan Fashion Week</p><a href="https://www.canva.com/" target="_blank" rel="noopener noreferrer" class="w-full inline-block text-center bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-300">View Details</a>
+  <p class="text-gray-600 mb-4">Milan Fashion Week</p><a href="#/" target="_blank" rel="noopener noreferrer" class="w-full inline-block text-center bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition duration-300">View Details</a>
       </div>
      </div>
     </div>
@@ -371,6 +383,77 @@
 
     // Auto-play carousel
     setInterval(nextSlide, 4000);
+
+    // --- Draggable focal-point for carousel images ---
+    // Allows user to drag images to adjust object-position so faces aren't cropped.
+    (function(){
+      function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
+      const container = document.getElementById('carousel-container');
+      if(container){
+  // hint element removed (no on-screen instruction)
+
+        const imgs = container.querySelectorAll('.carousel-slide img');
+        imgs.forEach(img => {
+          // ensure cover mode
+          img.style.objectFit = 'cover';
+          // load saved position (keyed by file name)
+          try{
+            const key = 'carousel-pos-' + (new URL(img.src, window.location.href)).pathname;
+            const saved = localStorage.getItem(key);
+            if(saved) img.style.objectPosition = saved;
+          }catch(e){/* ignore URL errors */}
+
+          let dragging = false;
+          let startX = 0, startY = 0;
+          let startPos = {x:50, y:50};
+
+          function parsePos(pos){
+            if(!pos) return {x:50,y:50};
+            const parts = pos.split(' ');
+            const px = parseFloat(parts[0]);
+            const py = parseFloat(parts[1]);
+            return {x: isNaN(px)?50:px, y: isNaN(py)?50:py};
+          }
+
+          img.addEventListener('pointerdown', e => {
+            img.setPointerCapture(e.pointerId);
+            dragging = true;
+            img.classList.add('dragging');
+            startX = e.clientX; startY = e.clientY;
+            startPos = parsePos(img.style.objectPosition || getComputedStyle(img).objectPosition);
+            e.preventDefault();
+          });
+
+          img.addEventListener('pointermove', e => {
+            if(!dragging) return;
+            const rect = img.getBoundingClientRect();
+            const dx = e.clientX - startX; const dy = e.clientY - startY;
+            const deltaXPercent = dx / rect.width * 100;
+            const deltaYPercent = dy / rect.height * 100;
+            const nx = clamp(startPos.x + deltaXPercent, 0, 100);
+            const ny = clamp(startPos.y + deltaYPercent, 0, 100);
+            img.style.objectPosition = nx.toFixed(2) + '% ' + ny.toFixed(2) + '%';
+          });
+
+          img.addEventListener('pointerup', e => {
+            if(dragging){
+              dragging = false;
+              img.releasePointerCapture(e.pointerId);
+              img.classList.remove('dragging');
+              try{
+                const key = 'carousel-pos-' + (new URL(img.src, window.location.href)).pathname;
+                localStorage.setItem(key, img.style.objectPosition || getComputedStyle(img).objectPosition);
+              }catch(err){/* ignore */}
+            }
+          });
+
+          img.addEventListener('pointercancel', () => {
+            dragging = false; img.classList.remove('dragging');
+          });
+        });
+      }
+    })();
 
     // Portfolio button handling
     const portfolioButtons = document.querySelectorAll('.card-hover button');
