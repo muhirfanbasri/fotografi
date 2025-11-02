@@ -1,0 +1,1117 @@
+
+<!doctype html>
+<html lang="id">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Slide from PDF</title>
+	<!-- Use a compiled Tailwind CSS build to avoid the CDN runtime warning in production -->
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+		<script>
+			// Robust fullscreen guard: run BEFORE loading other scripts so any later
+			// script calls to requestFullscreen are intercepted and do not trigger
+			// browser "permissions policy" violation logs when the document or
+			// embedding context disallows fullscreen (for example under file:// or
+			// when framed without the allowfullscreen attribute).
+			(function(){
+				function tryNoop(obj, name, returnPromise){
+					try{
+						if(returnPromise) obj[name] = function(){ return Promise.resolve(); };
+						else obj[name] = function(){ /* no-op */ };
+					}catch(e){ /* ignore */ }
+				}
+
+				try{
+					if(typeof Element !== 'undefined'){
+						tryNoop(Element.prototype, 'requestFullscreen', true);
+						tryNoop(Element.prototype, 'webkitRequestFullscreen', false);
+						tryNoop(Element.prototype, 'mozRequestFullScreen', false);
+						tryNoop(Element.prototype, 'msRequestFullscreen', false);
+					}
+					if(typeof HTMLElement !== 'undefined'){
+						tryNoop(HTMLElement.prototype, 'requestFullscreen', true);
+					}
+					if(typeof Document !== 'undefined'){
+						tryNoop(Document.prototype, 'requestFullscreen', true);
+						tryNoop(Document.prototype, 'webkitRequestFullscreen', false);
+						tryNoop(Document.prototype, 'mozRequestFullScreen', false);
+						tryNoop(Document.prototype, 'msRequestFullscreen', false);
+						// Make document.fullscreenEnabled report false so callers may short-circuit
+						try{
+							Object.defineProperty(Document.prototype, 'fullscreenEnabled', {
+								get: function(){ return false; },
+								configurable: true
+							});
+						}catch(e){ /* ignore */ }
+					}
+				}catch(e){ /* silent fail */ }
+			})();
+		</script>
+		<!-- PDF.js from CDN -->
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+		<script>
+			// Ensure PDF.js worker is loaded from CDN to avoid worker initialization issues
+			if(window.pdfjsLib){
+				pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+			}
+		</script>
+	<style>
+	:root{ 
+		--overlay-bg: rgba(0,0,0,0.45);
+		--flip-duration: 1400ms; /* total flip time */
+		--shadow-duration: 700ms;
+		--flip-easing: cubic-bezier(.22,.9,.3,1);
+		--flip-scale: 0.985;
+	}
+	html,body{ height:100%; }
+	body { font-family: system-ui, sans-serif; background:#000; margin:0; }
+	/* full-screen slide container: force full-viewport overlay on all devices */
+	.slide { position:fixed !important; inset:0 !important; display:flex; align-items:center; justify-content:center; background:#000; z-index:9999; max-width:none !important; margin:0 !important; padding:0 !important; }
+	/* Frame with fixed physical dimensions (29cm x 21cm) centered in viewport.
+	   On small viewports it will scale down to fit (max-width/height:100%). */
+	.slide .frame{
+		width:29cm;
+		height:21cm;
+		max-width: calc(100vw - 16px);
+		max-height: calc(100vh - 16px);
+		display:flex;
+		align-items:center;
+		justify-content:center;
+		overflow:hidden;
+		background:#000;
+		box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+		border-radius: 2px;
+	}
+	.slide .frame img{
+		width:100%;
+		height:100%;
+		object-fit:contain; /* show whole image without cropping */
+		display:block;
+	}
+
+	/* top minimal page indicator */
+	.page-indicator{ position:fixed; top:18px; left:50%; transform:translateX(-50%); z-index:70; background:rgba(255,255,255,0.06); color:#fff; padding:6px 12px; border-radius:999px; font-weight:600; letter-spacing:.4px; backdrop-filter: blur(4px); }
+
+	/* nav buttons (left/right) - positioned relative to slide container/frame for better responsiveness */
+	.nav-btn{ position:absolute; top:50%; transform:translateY(-50%); width:62px; height:62px; border-radius:999px; background:rgba(0,0,0,0.45); color:#fff; border:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:center; font-size:32px; z-index:10011 !important; cursor:pointer; box-shadow:0 8px 24px rgba(0,0,0,0.5); transition: left .24s ease, top .24s ease, transform .24s ease; will-change: left, top, transform; }
+	/* Expand touch/hit area without changing visual size using pseudo-element */
+	.nav-btn{ position:relative; }
+	.nav-btn::after{ content: ''; position: absolute; left: -10px; right: -10px; top: -10px; bottom: -10px; pointer-events: auto; }
+	.nav-left{ left:12px; }
+	.nav-right{ right:12px; }
+	.nav-btn:hover{ background:rgba(0,0,0,0.6); transform:translateY(-50%) scale(1.03); }
+
+	/* thumbnails as bottom overlay */
+	.thumbs { position:fixed; left:0; right:0; bottom:12px; display:flex; gap:.5rem; justify-content:center; overflow-x:auto; padding:0.5rem 1rem; z-index:60; pointer-events:auto; }
+	.thumbs img{ height:64px; object-fit:cover; border-radius:6px; cursor:pointer; box-shadow:0 6px 18px rgba(0,0,0,0.4); }
+
+	/* Modern floating control panel */
+	.controls{ position:fixed; z-index:10012 !important; display:flex; gap:10px; align-items:center; justify-content:center; transition: opacity .18s ease, transform .18s ease, left .24s ease, top .24s ease; will-change: left, top, transform; }
+	.control-btn{ width:54px; height:44px; border-radius:10px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; color:#fff; background: rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); box-shadow: none; backdrop-filter: blur(6px); transition: transform .12s ease, background .12s ease; font-weight:600; }
+	.control-btn:hover{ transform:translateY(-4px) scale(1.02); box-shadow:0 10px 30px rgba(0,0,0,0.55); }
+	.control-btn:active{ transform:translateY(-1px) scale(0.99); }
+	.control-btn.small{ width:44px; height:44px; border-radius:10px; }
+	.page-input{ width:84px; height:36px; border-radius:8px; padding:6px 10px; display:inline-flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.03); color:#fff; border:1px solid rgba(255,255,255,0.05); font-weight:600; font-size:14px; }
+
+	@media (max-width:640px){
+		.controls{ gap:8px; }
+			/* larger invisible hit area for mobile taps */
+			.nav-btn::after{ left: -18px; right: -18px; top: -18px; bottom: -18px; }
+		.control-btn{ width:48px; height:48px; border-radius:12px; }
+		.page-input{ width:64px; height:40px; }
+	}
+
+/* Mobile-focused nav helpers: large invisible edge hit-zones for easier taps */
+@media (max-width: 640px){
+		.controls{ gap:8px; }
+	.edge-nav{ display:block; }
+	/* center the floating controls horizontally on small screens */
+		/* center controls and constrain width to frame on small screens */
+		.controls{ left:50%; transform:translateX(-50%); bottom:12px; top:auto; max-width: calc(100vw - 24px); padding:6px; border-radius:12px; }
+		.controls .page-input{ min-width:56px; }
+	.controls{ left:50%; right:auto; transform:translateX(-50%); }
+	/* bring nav buttons a little closer to the frame edges on small screens */
+	.nav-left{ left:8px; }
+	.nav-right{ right:8px; }
+}
+
+	/* make viewer truly full-screen on mobile and increase thumb size for easier tap */
+	@media (max-width: 640px){
+		.slide{ align-items:center; justify-content:center; }
+		/* On small screens align frame content to the top so image appears at the top of the frame */
+		.slide .frame, .flip-side .frame { align-items:flex-start; }
+		.slide .frame img, .flip-side .frame img { object-position: top center; max-width: 100vw; max-height: 100vh; }
+		.thumbs{ bottom:6px; padding:0.5rem; gap:0.5rem; }
+		.thumbs img{ height:84px; border-radius:8px; }
+		.nav-btn{ width:52px; height:52px; font-size:26px; }
+	}
+
+		/* large invisible edge tap zones (only on small screens) */
+		.edge-nav{ display:none; position:absolute; top:0; bottom:0; width:18%; background:transparent; z-index:10008; }
+		.edge-nav.left{ left:0; }
+		.edge-nav.right{ right:0; }
+	/* hide native scrollbar but keep scrolling by touch/drag */
+	.thumbs{ scrollbar-width: none; -ms-overflow-style: none; }
+	.thumbs::-webkit-scrollbar{ display: none; height: 0; }
+
+	/* Flip card styles */
+	.flip-wrapper{ position:absolute; inset:0; perspective:2000px; z-index:50; }
+	.flip-card{ width:100%; height:100%; transform-style:preserve-3d; transition: transform var(--flip-duration) var(--flip-easing); position:relative; will-change: transform; }
+	/* shadow overlay used during page turn to create depth */
+	.flip-shadow{ position:absolute; inset:0; pointer-events:none; z-index:60; opacity:0; transition: opacity var(--shadow-duration) ease; mix-blend-mode:multiply; }
+	.flip-shadow.left{ background: linear-gradient(90deg, rgba(0,0,0,0.45), rgba(0,0,0,0)); }
+	.flip-shadow.right{ background: linear-gradient(270deg, rgba(0,0,0,0.45), rgba(0,0,0,0)); }
+	.flip-side{ position:absolute; inset:0; backface-visibility:hidden; }
+	/* a subtle 'page bend' overlay that is animated via JS/WAAPI to simulate curl */
+	.page-bend{ position:absolute; inset:0; pointer-events:none; z-index:65; display:flex; align-items:center; justify-content:center; }
+	.page-bend .curl{ width:60%; height:140%; background:linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.08), rgba(255,255,255,0.02)); border-radius:2px; transform-origin:center left; filter: blur(6px) saturate(0.9); opacity:0.0; }
+	.page-bend .specular{ position:absolute; inset:0; background:linear-gradient(90deg, rgba(255,255,255,0.0), rgba(255,255,255,0.18), rgba(255,255,255,0.0)); mix-blend-mode:screen; opacity:0; pointer-events:none; }
+	/* Flip sides should follow same sizing as main slide so flips aren't cropped */
+	/* For flip sides we keep the same frame sizing and put the image inside the frame */
+	.flip-side .frame{
+		width:29cm;
+		height:21cm;
+		max-width: calc(100vw - 16px);
+		max-height: calc(100vh - 16px);
+		display:flex; align-items:center; justify-content:center; overflow:hidden; background:#000;
+	}
+	.flip-side .frame img{ width:100%; height:100%; object-fit:contain; display:block; }
+	.flip-back{ transform:rotateY(180deg); }
+	</style>
+</head>
+<body class="p-6">
+	<div class="max-w-4xl mx-auto">
+			<!-- Upload/URL controls removed as requested -->
+
+		<!-- minimal page indicator -->
+		<div id="pageIndicator" class="page-indicator">0 / 0</div>
+		<div id="slideContainer" class="slide mb-4">
+			<!-- left/right nav buttons (moved inside container so they position relative to the slide/frame) -->
+			<button id="prevBtn" class="nav-btn nav-left" aria-label="Previous page">‹</button>
+			<button id="nextBtn" class="nav-btn nav-right" aria-label="Next page">›</button>
+			<div id="placeholder" class="text-white/80">Tidak ada PDF dimuat</div>
+			<!-- mobile edge tap zones for easier navigation on phones -->
+			<button id="edgePrev" class="edge-nav left" aria-hidden="true"></button>
+			<button id="edgeNext" class="edge-nav right" aria-hidden="true"></button>
+		</div>
+
+		<div id="thumbs" class="thumbs"></div>
+
+		<!-- Modern floating controls -->
+		<div id="controls" class="controls" aria-hidden="false">
+			<button id="firstBtn" class="control-btn small" title="First">«</button>
+			<button id="prevBtn2" class="control-btn" title="Previous">‹</button>
+			<button id="playBtn" class="control-btn" title="Play/Pause">►</button>
+			<button id="nextBtn2" class="control-btn" title="Next">›</button>
+			<button id="lastBtn" class="control-btn small" title="Last">»</button>
+			<div id="pageInput" class="page-input">0 / 0</div>
+		</div>
+	</div>
+
+	<script>
+		// Minimal PDF -> slide converter using PDF.js
+	// file/url upload controls removed per user request
+		const slideContainer = document.getElementById('slideContainer');
+		const thumbs = document.getElementById('thumbs');
+		const prevBtn = document.getElementById('prevBtn');
+		const nextBtn = document.getElementById('nextBtn');
+		const firstBtn = document.getElementById('firstBtn');
+		const prevBtn2 = document.getElementById('prevBtn2');
+		const nextBtn2 = document.getElementById('nextBtn2');
+		const lastBtn = document.getElementById('lastBtn');
+		const playBtn = document.getElementById('playBtn');
+		const pageInput = document.getElementById('pageInput');
+		const pageIndicator = document.getElementById('pageIndicator');
+		// export button removed
+
+		let pdfDoc = null;
+		let images = []; // dataURL per page
+		let current = 0;
+	    let isAnimating = false;
+	    let _midpointTimer = null;
+		// animation tuning (ms)
+		const FLIP_DURATION = 1400; // ms
+		const SHADOW_DURATION = 700; // ms
+		const FLIP_EASING = 'cubic-bezier(.22,.9,.3,1)';
+
+			function renderPageToImage(pdf, pageNum){
+				// choose a scale based on viewport and devicePixelRatio so image
+				// is neither too small (pixelated) nor excessively large (memory)
+				return pdf.getPage(pageNum).then(page => {
+					// get page size at scale=1 as baseline
+					const baseViewport = page.getViewport({ scale: 1 });
+					const DPR = Math.max(window.devicePixelRatio || 1, 1);
+					// target width should roughly match viewport width in pixels
+					const targetWidthPx = window.innerWidth * DPR;
+					// compute scale to reach target width, clamp to reasonable range
+					let scale = targetWidthPx / baseViewport.width;
+					// clamp scale between 0.6 and 1.6 to avoid extreme sizes
+					scale = Math.min(1.6, Math.max(0.6, scale));
+					const viewport = page.getViewport({ scale });
+					const canvas = document.createElement('canvas');
+					const context = canvas.getContext('2d');
+					canvas.width = Math.round(viewport.width);
+					canvas.height = Math.round(viewport.height);
+					// draw with smoothing enabled
+					context.imageSmoothingEnabled = true;
+					context.imageSmoothingQuality = 'high';
+					return page.render({ canvasContext: context, viewport }).promise.then(() => {
+						return canvas.toDataURL('image/jpeg', 0.9);
+					});
+				});
+			}
+
+		function showSlide(index){
+			// immediate replace (used on initial load)
+			if(!images.length) return;
+			current = (index + images.length) % images.length;
+			// remove any existing placeholder or frame but keep nav buttons and edge zones
+			const existingFrame = slideContainer.querySelector('.frame');
+			if(existingFrame) existingFrame.remove();
+			const placeholderEl = slideContainer.querySelector('#placeholder');
+			if(placeholderEl) placeholderEl.remove();
+			const frame = document.createElement('div'); frame.className = 'frame';
+			const img = document.createElement('img');
+			img.src = images[current];
+			img.alt = 'Slide ' + (current+1);
+			img.addEventListener('load', ()=> positionControls());
+			frame.appendChild(img);
+			slideContainer.appendChild(frame);
+			pageIndicator.textContent = (current+1) + ' / ' + images.length;
+			// highlight thumb
+			Array.from(thumbs.children).forEach((t,i)=> t.style.outline = i===current? '3px solid #2563eb' : 'none');
+			updateControls();
+		}
+
+		// Flip transition between current and target index
+		function flipTo(targetIndex, direction){
+			if(!images.length) return;
+			if(isAnimating) return; // prevent overlapping flips
+			const next = (targetIndex + images.length) % images.length;
+			if(next === current) return;
+
+			// mark animating and update controls
+			isAnimating = true;
+			updateControls();
+
+			// prepare wrapper
+			const wrapper = document.createElement('div');
+			wrapper.className = 'flip-wrapper';
+			const card = document.createElement('div');
+			card.className = 'flip-card';
+
+			const front = document.createElement('div'); front.className = 'flip-side flip-front';
+			const back = document.createElement('div'); back.className = 'flip-side flip-back';
+
+			// each side contains a .frame so sizing matches the normal slide
+			const f1 = document.createElement('div'); f1.className = 'frame';
+			const f2 = document.createElement('div'); f2.className = 'frame';
+
+			const imgFront = document.createElement('img'); imgFront.src = images[current]; imgFront.alt = 'Slide '+(current+1);
+			const imgBack = document.createElement('img'); imgBack.src = images[next]; imgBack.alt = 'Slide '+(next+1);
+
+
+			f1.appendChild(imgFront);
+			f2.appendChild(imgBack);
+
+			front.appendChild(f1);
+			back.appendChild(f2);
+			card.appendChild(front); card.appendChild(back);
+
+			// add shadow overlays to mimic page shading during turn
+			const shadowL = document.createElement('div'); shadowL.className = 'flip-shadow left';
+			const shadowR = document.createElement('div'); shadowR.className = 'flip-shadow right';
+			card.appendChild(shadowL);
+			card.appendChild(shadowR);
+
+			wrapper.appendChild(card);
+			// place wrapper over slideContainer
+			slideContainer.appendChild(wrapper);
+
+			// set transform-origin so page appears to turn from the correct edge
+			if(direction === 'prev'){
+				card.style.transformOrigin = 'right center';
+				// prepare back rotated so it sits behind
+				front.style.zIndex = 30;
+				back.style.zIndex = 20;
+				card.style.transform = 'rotateY(0deg)';
+				// show appropriate shadow: left side will darken during backward flip
+				shadowR.style.opacity = '0';
+				shadowL.style.opacity = '0';
+			}else{
+				card.style.transformOrigin = 'left center';
+				front.style.zIndex = 30;
+				back.style.zIndex = 20;
+				card.style.transform = 'rotateY(0deg)';
+				shadowL.style.opacity = '0';
+				shadowR.style.opacity = '0';
+			}
+
+			// Prepare a page-bend overlay (animated with WAAPI) for a smooth curl illusion
+			let bendEl = document.createElement('div');
+			bendEl.className = 'page-bend';
+			const bendInner = document.createElement('div'); bendInner.className = 'curl';
+			const spec = document.createElement('div'); spec.className = 'specular';
+			bendEl.appendChild(bendInner); bendEl.appendChild(spec);
+			card.appendChild(bendEl);
+
+			// schedule flip on next frame to ensure initial state applied
+			let soundTimer = null;
+			let bendAnim = null, specAnim = null;
+			requestAnimationFrame(()=>{
+				// schedule rustle sound near visual midpoint (slightly before midpoint)
+				try{
+					soundTimer = setTimeout(()=>{ try{ playPageTurnSound(); }catch(e){} }, Math.round(FLIP_DURATION * 0.45));
+				}catch(e){}
+
+				// schedule midpoint update so page indicator / thumbnails update visually with the flip
+				try{
+					_midpointTimer = setTimeout(()=>{
+						// update current index and UI highlight at visual midpoint
+						current = next;
+						pageIndicator.textContent = (current+1) + ' / ' + images.length;
+						Array.from(thumbs.children).forEach((t,i)=> t.style.outline = i===current? '3px solid #2563eb' : 'none');
+					}, Math.round(FLIP_DURATION * 0.5));
+				}catch(e){}
+
+				// fade in shadow on the side that's turning
+				if(direction === 'prev'){
+					shadowR.style.transition = `opacity ${SHADOW_DURATION}ms ease`;
+					shadowR.style.opacity = '0.45';
+				}else{
+					shadowL.style.transition = `opacity ${SHADOW_DURATION}ms ease`;
+					shadowL.style.opacity = '0.45';
+				}
+
+				// apply transform on card using tuned constants
+				card.style.transition = `transform ${FLIP_DURATION}ms ${FLIP_EASING}`;
+				if(direction === 'prev'){
+					card.style.transform = `rotateY(180deg) scale(${getComputedStyle(document.documentElement).getPropertyValue('--flip-scale') || 0.985}) rotateZ(1deg)`;
+				}else{
+					card.style.transform = `rotateY(-180deg) scale(${getComputedStyle(document.documentElement).getPropertyValue('--flip-scale') || 0.985}) rotateZ(-1deg)`;
+				}
+
+				// animate the bend and specular highlight using WAAPI for smoother frames
+				try{
+					bendAnim = bendInner.animate([
+						{ transform: 'translateX(0) rotateY(0) scaleX(0.99)', opacity: 0 },
+						{ transform: direction === 'prev' ? 'translateX(-6%) rotateY(6deg) scaleX(1.03)' : 'translateX(6%) rotateY(-6deg) scaleX(1.03)', opacity: 0.95, offset: 0.45 },
+						{ transform: 'translateX(0) rotateY(0) scaleX(0.99)', opacity: 0 }
+					], { duration: FLIP_DURATION, easing: 'ease-in-out', fill: 'forwards' });
+
+					specAnim = spec.animate([
+						{ opacity: 0, transform: 'translateX(-40%)' },
+						{ opacity: 0.85, transform: 'translateX(10%)', offset: 0.45 },
+						{ opacity: 0, transform: 'translateX(120%)' }
+					], { duration: FLIP_DURATION, easing: 'linear', fill: 'forwards' });
+				}catch(e){ /* WAAPI may throw on some older browsers; it's non-fatal */ }
+			});
+
+			// when transition ends -> set current and cleanup
+			const cleanup = ()=>{
+				card.removeEventListener('transitionend', onEnd);
+				// set permanent image
+				current = next;
+				// remove any temporary flip wrapper or previous frame but keep controls
+				const wrapperEl = slideContainer.querySelector('.flip-wrapper'); if(wrapperEl) wrapperEl.remove();
+				const prevFrame = slideContainer.querySelector('.frame'); if(prevFrame) prevFrame.remove();
+				const frame = document.createElement('div'); frame.className = 'frame';
+				const img = document.createElement('img'); img.src = images[current]; img.alt = 'Slide '+(current+1);
+				frame.appendChild(img);
+				slideContainer.appendChild(frame);
+				// reposition controls now that frame exists
+				// ensure controls placement after image paints
+				img.addEventListener('load', ()=> positionControls());
+				positionControls();
+				pageIndicator.textContent = (current+1) + ' / ' + images.length;
+				Array.from(thumbs.children).forEach((t,i)=> t.style.outline = i===current? '3px solid #2563eb' : 'none');
+				updateControls();
+			};
+
+			function onEnd(e){
+				if(e.target === card){
+					// fade out shadows quickly
+					Array.from(card.querySelectorAll('.flip-shadow')).forEach(s=>{ s.style.opacity = '0'; });
+					// cancel scheduled sound if any still pending
+					if(soundTimer) { clearTimeout(soundTimer); soundTimer = null; }
+					// cancel midpoint timer if still pending (we already set current in midpoint, but clear to be safe)
+					if(_midpointTimer){ clearTimeout(_midpointTimer); _midpointTimer = null; }
+					// cancel bend/specular animations
+					try{ bendAnim && bendAnim.cancel(); specAnim && specAnim.cancel(); }catch(err){}
+					// remove bend element
+					try{ bendEl && bendEl.remove(); }catch(err){}
+					// clear animating flag and update controls before final DOM replace
+					isAnimating = false;
+					updateControls();
+					cleanup();
+				}
+			}
+			card.addEventListener('transitionend', onEnd);
+		}
+
+		function buildThumbnails(){
+			thumbs.innerHTML = '';
+			images.forEach((d,i)=>{
+				const t = document.createElement('img');
+				t.src = d; t.alt = 'Page '+(i+1);
+				t.addEventListener('click', ()=> flipTo(i, i>current? 'next':'prev'));
+				thumbs.appendChild(t);
+			});
+			updateControls();
+		}
+
+		function processPdfData(arrayBuffer){
+			const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+			return loadingTask.promise.then(pdf => {
+				pdfDoc = pdf;
+				const pagePromises = [];
+				for(let p=1;p<=pdf.numPages;p++){
+					// choose scale: bigger pages need smaller scale to fit; 1.2 is reasonable
+					pagePromises.push(renderPageToImage(pdf, p, 1.2));
+				}
+				return Promise.all(pagePromises).then(results => {
+					images = results;
+					buildThumbnails();
+					showSlide(0);
+				});
+			});
+		}
+
+		/**
+		 * Try to load image files from a folder (e.g. 'irfan/').
+		 * Strategy:
+		 *  1) Try fetching the folder URL and parsing links (works when server shows directory listing).
+		 *  2) Fallback: probe sequential filenames (1.jpg,2.jpg...) with common extensions until several
+		 *     consecutive misses occur.
+		 * Returns Promise<string[]> of image URLs (may be relative URLs).
+		 */
+		function loadImagesFromFolder(folder){
+			return new Promise(async (resolve)=>{
+				const cleaned = folder.replace(/\\/g, '/');
+				const base = cleaned.replace(/\/?$/, '/');
+				// 1) try directory listing
+				try{
+					const r = await fetch(base, { method: 'GET' });
+					if(r.ok){
+						const text = await r.text();
+						const doc = new DOMParser().parseFromString(text, 'text/html');
+						const anchors = Array.from(doc.querySelectorAll('a'));
+						const imgs = anchors.map(a=>a.getAttribute('href')).filter(h=>h && /\.(jpe?g|png|webp)$/i.test(h)).map(h=>new URL(h, base).href);
+						if(imgs.length) return resolve(imgs);
+					}
+				}catch(e){
+					// ignore directory listing errors
+				}
+
+				// 2) probe sequential filenames
+				const exts = ['jpg','jpeg','png','webp'];
+				const prefixes = ['', 'img', 'image', 'page-', 'page', 'p', 'scan', 'photo', 'img_', 'IMG_'];
+				const found = [];
+				let consecutiveMisses = 0; const maxConsec = 8; const maxIndex = 120;
+				// helper to attempt a candidate URL and return boolean
+				async function probeUrl(url){
+					return await new Promise(res=>{
+						let settled = false;
+						const img = new Image();
+						img.onload = ()=>{ if(!settled){ settled=true; res(true); }};
+						img.onerror = ()=>{ if(!settled){ settled=true; res(false); }};
+						img.src = url;
+						setTimeout(()=>{ if(!settled){ settled=true; res(false); } }, 900);
+					});
+				}
+
+				for(let i=1;i<=maxIndex && consecutiveMisses < maxConsec;i++){
+					let foundThis = false;
+					// number variants to try for this index
+					const nums = [String(i), String(i).padStart(2,'0'), String(i).padStart(3,'0')];
+					if(i<=3) nums.push(String(i-1));
+
+					for(const pref of prefixes){
+						for(const n of nums){
+							for(const ext of exts){
+								const name = pref + n;
+								if(!name) continue;
+								const candidate = base + name + '.' + ext;
+								try{
+									const ok = await probeUrl(candidate);
+									if(ok){
+										// avoid duplicates
+										if(!found.includes(candidate)) found.push(candidate);
+										foundThis = true;
+										break;
+									}
+								}catch(e){ /* ignore */ }
+							}
+							if(foundThis) break;
+						}
+						if(foundThis) break;
+					}
+					if(foundThis) consecutiveMisses = 0; else consecutiveMisses++;
+				}
+				// try to sort found images by numeric part if available, otherwise by name
+				try{
+					found.sort((a,b)=>{
+						const na = a.replace(base, '').match(/(\d+)/);
+						const nb = b.replace(base, '').match(/(\d+)/);
+						if(na && nb) return parseInt(na[1]) - parseInt(nb[1]);
+						if(na) return -1;
+						if(nb) return 1;
+						return a.localeCompare(b);
+					});
+				}catch(e){/* ignore sort errors */}
+				resolve(found);
+			});
+		}
+
+		// --- page-turn sound: prefer external file `kertas.mp3` in same folder, fallback to synthesized ---
+		let _audioCtx = null;
+		function ensureAudio(){
+			if(!_audioCtx){
+				try{ _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ _audioCtx = null; }
+			}
+			return _audioCtx;
+		}
+
+		// synthesized fallback (kept as a separate function)
+		function playSynthPageSound(){
+			const ctx = ensureAudio();
+			if(!ctx) return;
+			const now = ctx.currentTime;
+			const duration = 0.9;
+			const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * duration), ctx.sampleRate);
+			const data = buf.getChannelData(0);
+			for(let i=0;i<data.length;i++){
+				const t = i / ctx.sampleRate;
+				const env = Math.exp(-t * 6.0) * (0.9 + 0.1 * Math.random());
+				data[i] = (Math.random() * 2 - 1) * env * (0.6 + 0.4 * Math.random());
+			}
+			const src = ctx.createBufferSource(); src.buffer = buf;
+			const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 350;
+			const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2200; bp.Q.value = 0.9;
+			const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 6400; lp.Q.value = 0.7;
+			const gain = ctx.createGain(); gain.gain.value = 1.0;
+			src.connect(hp); hp.connect(bp); bp.connect(lp); lp.connect(gain);
+			const pan = (ctx.createStereoPanner) ? ctx.createStereoPanner() : null;
+			if(pan) gain.connect(pan); pan && pan.connect(ctx.destination); if(!pan) gain.connect(ctx.destination);
+			src.playbackRate.setValueAtTime(1.4, now);
+			src.playbackRate.exponentialRampToValueAtTime(0.9, now + duration * 0.9);
+			gain.gain.setValueAtTime(0.0001, now);
+			gain.gain.exponentialRampToValueAtTime(0.95, now + 0.012);
+			gain.gain.exponentialRampToValueAtTime(0.0005, now + duration);
+
+			const osc = ctx.createOscillator(); osc.type = 'triangle'; osc.frequency.setValueAtTime(110, now);
+			const g2 = ctx.createGain(); g2.gain.setValueAtTime(0.15, now);
+			osc.frequency.exponentialRampToValueAtTime(60, now + 0.18);
+			g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+			osc.connect(g2); g2.connect(ctx.destination);
+
+			src.start(now);
+			src.stop(now + duration);
+			osc.start(now);
+			osc.stop(now + 0.38);
+			setTimeout(()=>{
+				try{ src.disconnect(); hp.disconnect(); bp.disconnect(); lp.disconnect(); gain.disconnect(); if(pan) pan.disconnect(); osc.disconnect(); g2.disconnect(); }catch(e){}
+			}, (duration + 0.2) * 1000);
+		}
+
+		// tries to play `kertas.mp3` from same folder; if it fails, fall back to synthesized sound
+		function playPageTurnSound(){
+			try{
+				// preload base sample singleton
+				if(!window._pageSampleBase){
+					window._pageSampleBase = new Audio('kertas.mp3');
+					window._pageSampleBase.preload = 'auto';
+					window._pageSampleBase.volume = 0.92;
+				}
+				// clone node so multiple flips can overlap
+				const s = window._pageSampleBase.cloneNode(true);
+				s.volume = 0.9;
+				s.playbackRate = 0.98 + (Math.random() * 0.04);
+				s.currentTime = 0;
+				const playPromise = s.play();
+				if(playPromise && typeof playPromise.then === 'function'){
+					playPromise.then(()=>{
+						// cleanup after finished
+						s.addEventListener('ended', ()=>{ try{ s.remove(); }catch(e){} });
+					}).catch(err=>{
+						// if playback blocked or fails, fallback to synth
+						playSynthPageSound();
+					});
+				}else{
+					// older browsers may not return a promise
+					setTimeout(()=>{ try{ s.remove(); }catch(e){} }, 1500);
+				}
+			}catch(e){
+				// any error -> fallback
+				try{ playSynthPageSound(); }catch(ex){}
+			}
+		}
+
+				// Manual file/url upload handlers removed — autoload will try to load `irfan.pdf` from same folder.
+
+
+	prevBtn.addEventListener('click', ()=> flipTo(current-1, 'prev'));
+	nextBtn.addEventListener('click', ()=> flipTo(current+1, 'next'));
+
+// edge tap zones for mobile
+const edgePrev = document.getElementById('edgePrev');
+const edgeNext = document.getElementById('edgeNext');
+if(edgePrev) edgePrev.addEventListener('click', ()=> flipTo(current-1, 'prev'));
+if(edgeNext) edgeNext.addEventListener('click', ()=> flipTo(current+1, 'next'));
+
+	// modern controls wiring
+	firstBtn.addEventListener('click', ()=> { if(images.length) flipTo(0,'prev'); });
+	lastBtn.addEventListener('click', ()=> { if(images.length) flipTo(images.length-1,'next'); });
+	prevBtn2.addEventListener('click', ()=> flipTo(current-1, 'prev'));
+	nextBtn2.addEventListener('click', ()=> flipTo(current+1, 'next'));
+
+	let autoplayId = null;
+	function startAutoplay(){ if(autoplayId) return; autoplayId = setInterval(()=> flipTo(current+1,'next'), 3500); playBtn.textContent = '❚❚'; }
+	function stopAutoplay(){ if(!autoplayId) return; clearInterval(autoplayId); autoplayId = null; playBtn.textContent = '►'; }
+	playBtn.addEventListener('click', ()=>{ if(autoplayId) stopAutoplay(); else startAutoplay(); });
+
+	function updateControls(){
+		pageInput.textContent = images.length ? (current+1) + ' / ' + images.length : '0 / 0';
+		const disabled = images.length === 0 || isAnimating;
+		[firstBtn, prevBtn, prevBtn2, nextBtn, nextBtn2, lastBtn, playBtn].forEach(b=> b.disabled = disabled);
+		// visually indicate animating state (optional subtle dim)
+		if(isAnimating){
+			document.getElementById('controls').style.opacity = '0.75';
+		}else{
+			document.getElementById('controls').style.opacity = '';
+		}
+	}
+
+	// Position controls centered under the current .frame inside slideContainer
+	function positionControls(){
+		const controls = document.getElementById('controls');
+		if(!controls) return;
+		const frame = slideContainer.querySelector('.frame');
+		// position controls fixed relative to viewport so they are not removed when slideContainer is replaced
+		controls.style.position = 'fixed';
+		// fallback: center at bottom if frame not found
+		if(!frame){
+			controls.style.left = '50%';
+			controls.style.transform = 'translateX(-50%)';
+			controls.style.top = '';
+			controls.style.bottom = '18px';
+			return;
+		}
+		const frameRect = frame.getBoundingClientRect();
+		const controlsRect = controls.getBoundingClientRect();
+		// compute left so controls are centered under frame (relative to viewport)
+		let left = frameRect.left + (frameRect.width/2) - (controlsRect.width/2);
+		left = Math.max(8, Math.min(left, window.innerWidth - controlsRect.width - 8));
+		// compute top just below frame
+		let top = frameRect.bottom + 10;
+		// ensure controls don't run off the bottom of the viewport
+		if(top + controlsRect.height > window.innerHeight - 8){
+			top = window.innerHeight - controlsRect.height - 12;
+		}
+		controls.style.left = left + 'px';
+		controls.style.top = top + 'px';
+		controls.style.bottom = '';
+		// small-screen adjustment
+		if(window.innerWidth <= 640){ 
+			controls.style.transform = 'translateX(-50%)';
+			controls.style.left = '50%';
+			controls.style.bottom = '12px';
+			controls.style.top = '';
+			// constrain controls width to frame width or viewport
+			const maxW = Math.min(frameRect.width - 24, window.innerWidth - 32);
+			controls.style.maxWidth = Math.max(160, maxW) + 'px';
+			controls.style.boxSizing = 'border-box';
+		}
+
+		// Position prev/next nav buttons so they align vertically with the frame center
+		try{
+			const prev = document.getElementById('prevBtn');
+			const next = document.getElementById('nextBtn');
+			if(prev && next){
+				// make them fixed so they don't get removed or reflowed when slideContainer is replaced
+				prev.style.position = next.style.position = 'fixed';
+				prev.style.transform = next.style.transform = 'none';
+				const prevRect = prev.getBoundingClientRect();
+				const btnH = prevRect.height || 56;
+				if(frame){
+					const fr = frame.getBoundingClientRect();
+					const top = Math.max(8, fr.top + (fr.height/2) - (btnH/2));
+					// left for prev button is inset slightly from the frame left edge
+					const btnW = prevRect.width || 56;
+					let leftPrev = Math.max(6, Math.round(fr.left + 8));
+					let leftNext = Math.round(fr.right - btnW - 8);
+
+					// Ensure buttons don't overlap — enforce a minimum gap
+					const minGap = 12;
+					if(leftNext < leftPrev + btnW + minGap){
+						// try to nudge prev leftwards and next rightwards within viewport
+						leftPrev = Math.max(6, Math.round(fr.left + 4));
+						leftNext = Math.min(window.innerWidth - btnW - 6, Math.round(fr.right - btnW - 4));
+						if(leftNext < leftPrev + btnW + minGap){
+							// as last resort, place prev at left inset and next at right inset
+							leftPrev = 8;
+							leftNext = Math.max(leftPrev + btnW + minGap, window.innerWidth - btnW - 8);
+						}
+					}
+
+					// small-screen tweak: bring buttons a bit closer to frame edges
+					if(window.innerWidth <= 640){
+						leftPrev = Math.max(6, Math.round(fr.left + 6));
+						leftNext = Math.min(window.innerWidth - btnW - 6, Math.round(fr.right - btnW - 6));
+					}
+
+					// Apply positions and ensure right is cleared (we use left positioning)
+					prev.style.left = leftPrev + 'px'; prev.style.right = 'auto';
+					next.style.left = leftNext + 'px'; next.style.right = 'auto';
+					prev.style.top = next.style.top = top + 'px';
+				}else{
+					// fallback: center vertically in viewport
+					const top = Math.max(8, (window.innerHeight/2) - (btnH/2));
+					const btnW = prevRect.width || 56;
+					prev.style.left = '12px'; prev.style.right = 'auto';
+					next.style.left = (window.innerWidth - btnW - 12) + 'px'; next.style.right = 'auto';
+					prev.style.top = next.style.top = top + 'px';
+				}
+			}
+		}catch(e){/* positioning best-effort; ignore errors */}
+	}
+
+	window.addEventListener('resize', ()=> positionControls());
+	window.addEventListener('scroll', ()=> positionControls(), { passive: true });
+
+// Show a small non-blocking banner when the page is opened via file:// to explain
+// why automatic PDF loading may not work and provide a copyable local-server command.
+function showFileProtocolBanner(){
+	// avoid creating multiple banners
+	if(document.getElementById('fileProtocolBanner')) return;
+	const banner = document.createElement('div');
+	banner.id = 'fileProtocolBanner';
+	banner.style.position = 'fixed';
+	banner.style.right = '12px';
+	banner.style.top = '12px';
+	banner.style.zIndex = 10030;
+	banner.style.background = 'linear-gradient(180deg, rgba(0,0,0,0.7), rgba(0,0,0,0.6))';
+	banner.style.color = '#fff';
+	banner.style.padding = '10px 12px';
+	banner.style.borderRadius = '10px';
+	banner.style.boxShadow = '0 6px 24px rgba(0,0,0,0.5)';
+	banner.style.fontSize = '13px';
+	banner.style.maxWidth = '320px';
+	banner.style.backdropFilter = 'blur(6px)';
+
+	const msg = document.createElement('div');
+	msg.style.marginBottom = '8px';
+	msg.textContent = 'Dibuka via file:// — browser mungkin memblokir otomatisasi PDF. Jalankan server lokal untuk autoload.';
+
+	const cmd = document.createElement('code');
+	cmd.textContent = 'python -m http.server 8000';
+	cmd.style.display = 'block';
+	cmd.style.background = 'rgba(255,255,255,0.04)';
+	cmd.style.padding = '6px 8px';
+	cmd.style.borderRadius = '6px';
+	cmd.style.marginBottom = '8px';
+	cmd.style.userSelect = 'all';
+
+	const row = document.createElement('div');
+	row.style.display = 'flex';
+	row.style.gap = '8px';
+	row.style.justifyContent = 'flex-end';
+
+	const copyBtn = document.createElement('button');
+	copyBtn.textContent = 'Copy command';
+	copyBtn.style.background = 'rgba(255,255,255,0.06)';
+	copyBtn.style.color = '#fff';
+	copyBtn.style.border = 'none';
+	copyBtn.style.padding = '6px 8px';
+	copyBtn.style.borderRadius = '6px';
+	copyBtn.style.cursor = 'pointer';
+	copyBtn.addEventListener('click', async ()=>{
+		const text = 'python -m http.server 8000';
+		try{ await navigator.clipboard.writeText(text); copyBtn.textContent = 'Copied'; setTimeout(()=> copyBtn.textContent = 'Copy command', 1500); }
+		catch(e){
+			// fallback
+			const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); copyBtn.textContent = 'Copied'; }catch(err){ copyBtn.textContent = 'Copy failed'; } ta.remove(); setTimeout(()=> copyBtn.textContent = 'Copy command', 1500);
+		}
+	});
+
+	const closeBtn = document.createElement('button');
+	closeBtn.textContent = '×';
+	closeBtn.title = 'Close';
+	closeBtn.style.background = 'transparent';
+	closeBtn.style.color = '#fff';
+	closeBtn.style.border = 'none';
+	closeBtn.style.fontSize = '18px';
+	closeBtn.style.cursor = 'pointer';
+	closeBtn.addEventListener('click', ()=> banner.remove());
+
+	row.appendChild(copyBtn);
+	row.appendChild(closeBtn);
+
+	banner.appendChild(msg);
+	banner.appendChild(cmd);
+	banner.appendChild(row);
+	document.body.appendChild(banner);
+}
+
+	// Touch / pointer swipe support for changing slides
+	;(function addSwipe(){
+		const el = slideContainer;
+		if(!el) return;
+		let startX = 0, startY = 0, isDown = false;
+		const threshold = 40; // px
+
+		function onDown(e){
+			isDown = true;
+			startX = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX;
+			startY = e.type.startsWith('touch') ? e.touches[0].clientY : e.clientY;
+		}
+		function onMove(e){
+			if(!isDown) return;
+			// do nothing during move; we only need start coords and end coords
+		}
+		function onUp(e){
+			if(!isDown) return;
+			isDown = false;
+			const endX = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientX : e.clientX;
+			const endY = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientY : e.clientY;
+			const dx = endX - startX;
+			const dy = endY - startY;
+			// require mostly horizontal swipe and exceed threshold
+			if(Math.abs(dx) > Math.abs(dy) * 1.5 && Math.abs(dx) > threshold){
+				if(dx < 0){ // swipe left -> next
+					flipTo(current+1, 'next');
+				}else{ // swipe right -> prev
+					flipTo(current-1, 'prev');
+				}
+			}
+		}
+
+		// pointer events (works for mouse + touch) where supported
+		el.addEventListener('pointerdown', onDown, {passive:true});
+		el.addEventListener('pointermove', onMove, {passive:true});
+		el.addEventListener('pointerup', onUp, {passive:true});
+		el.addEventListener('pointercancel', ()=>{ isDown=false; }, {passive:true});
+
+		// Touch fallback
+		el.addEventListener('touchstart', onDown, {passive:true});
+		el.addEventListener('touchmove', onMove, {passive:true});
+		el.addEventListener('touchend', onUp, {passive:true});
+	})();
+
+			// export functionality removed as requested
+
+			// keyboard navigation -> use flipTo so navigation animates
+			document.addEventListener('keydown', e=>{
+				if(e.key === 'ArrowRight') flipTo(current+1, 'next');
+				if(e.key === 'ArrowLeft') flipTo(current-1, 'prev');
+			});
+
+			// Try load default PDF 'irfan.pdf' from same folder automatically
+			window.addEventListener('load', async ()=>{
+				const defaultName = 'irfan.pdf';
+
+				// Prefer images from `irfan/` folder when available (user requested).
+				// Attempt this before trying to load the PDF so local image sets are used.
+				try{
+					const pref = await loadImagesFromFolder('irfan/');
+					if(pref && pref.length){
+						console.info('Found images in irfan/ — using them as slides.');
+						images = pref;
+						buildThumbnails();
+						showSlide(0);
+						return;
+					}
+				}catch(e){
+					// failure probing irfan/ — continue to PDF loading flow
+					console.debug('Probe for irfan/ failed or returned no images', e);
+				}
+
+				if(!window.pdfjsLib){
+					console.error('pdfjsLib (PDF.js) tidak ditemukan — cek koneksi atau file pdf.min.js');
+					showAutoloadFallback(defaultName, 'PDF.js library tidak tersedia. Periksa koneksi internet atau file pdf.min.js.');
+					return;
+				}
+				// If the page is opened via file:// some browsers may block worker/fetch.
+				// We'll still attempt to load — but keep a user-facing note available if all attempts fail.
+				let fileProtocolWarning = null;
+				if(location.protocol === 'file:'){
+					// When opened via file:// many browsers block PDF worker/fetch. Try a
+					// local-image-first strategy: probe for images in the current folder
+					// and in `irfan/`. If found, use those images and avoid showing the
+					// file:// banner. Only if nothing is found show the banner + embed.
+					try{
+						let found = [];
+						try{
+							// prefer irfan/ first
+							found = await loadImagesFromFolder('irfan/');
+						}catch(e){ found = []; }
+						if(!found || !found.length){
+							try{ found = await loadImagesFromFolder('./'); }catch(e){ found = []; }
+						}
+						if(found && found.length){
+							console.info('Loaded', found.length, 'local images under file:// — using them as slides.');
+							images = found;
+							buildThumbnails();
+							showSlide(0);
+							return; // success; skip embed/banner
+						}
+					}catch(e){
+						console.debug('Local image probe under file:// failed', e);
+					}
+
+					// nothing found: show banner and try embed as a last resort
+					showFileProtocolBanner();
+					fileProtocolWarning = 'Dibuka via file:// — beberapa browser memblokir akses file atau worker. Jika PDF tidak tampil, jalankan server lokal atau buka slide.html via http://localhost.';
+					// Try to embed the PDF using the browser's native PDF viewer first
+					try{
+						const embed = document.createElement('object');
+						embed.type = 'application/pdf';
+						embed.data = defaultName;
+						embed.style.width = '29cm';
+						embed.style.height = '21cm';
+						embed.style.maxWidth = 'calc(100vw - 16px)';
+						embed.style.maxHeight = 'calc(100vh - 16px)';
+						embed.style.display = 'block';
+						embed.style.margin = '0 auto';
+						embed.innerHTML = '<p style="color:#fff;text-align:center;padding:20px">PDF tidak dapat ditampilkan. <a href="' + defaultName + '" target="_blank" rel="noopener noreferrer" style="color:#9ae6b4">Buka PDF secara langsung</a></p>';
+						// place embed immediately inside a frame so sizing matches
+						// remove previous placeholder/frame but keep controls
+						const existingFrame = slideContainer.querySelector('.frame'); if(existingFrame) existingFrame.remove();
+						const placeholderEl = slideContainer.querySelector('#placeholder'); if(placeholderEl) placeholderEl.remove();
+						const ef = document.createElement('div'); ef.className = 'frame';
+						ef.appendChild(embed);
+						slideContainer.appendChild(ef);
+						// Under file:// we avoid further noisy fetch attempts; show embed and instructions.
+						showAutoloadFallback(defaultName, fileProtocolWarning);
+						return; // skip further pdfjs/getDocument attempts
+					}catch(e){
+						console.debug('Embed fallback failed', e);
+						// proceed to subsequent fallbacks below
+					}
+				}
+
+				// Build candidate URLs to try (deduplicated)
+				const baseDir = location.href.replace(/[^/]*$/, '');
+				const rawCandidates = [ defaultName, './' + defaultName, new URL(defaultName, location.href).href, baseDir + defaultName ];
+				const candidates = Array.from(new Set(rawCandidates));
+
+				let loaded = false;
+				for(const candidate of candidates){
+					try{
+						console.debug('Trying to load PDF via pdfjs getDocument():', candidate);
+						const loadingTask = pdfjsLib.getDocument(candidate);
+						const pdf = await loadingTask.promise;
+						console.info('Loaded PDF with pdfjs from', candidate);
+						pdfDoc = pdf;
+						const pagePromises = [];
+						for(let p=1;p<=pdf.numPages;p++) pagePromises.push(renderPageToImage(pdf, p));
+						const results = await Promise.all(pagePromises);
+						images = results;
+						buildThumbnails();
+						showSlide(0);
+						loaded = true;
+						break;
+					}catch(err){
+						// Specific handling for PDF.js MissingPDFException: file not found or invalid PDF
+						console.debug('pdfjs.getDocument failed for', candidate, err && err.name ? err.name : err);
+						// If running under file://, fetching the same path will commonly fail due to browser restrictions.
+						if(location.protocol === 'file:'){
+							console.info('Running under file:// — skipping fetch fallback for', candidate);
+							continue; // try next candidate or fallback to image folder later
+						}
+						// try fetch fallback for this candidate (only on http/https)
+						try{
+							console.debug('Trying fetch() fallback for', candidate);
+							const r = await fetch(candidate, { method: 'GET', cache: 'no-store' });
+							if(!r.ok) throw new Error('Fetch failed: ' + r.status);
+							const ct = r.headers.get('content-type') || '';
+							if(!/pdf/i.test(ct)){
+								// if Content-Type isn't PDF, still attempt to read buffer but warn
+								console.warn('Fetched resource is not reported as PDF (content-type:', ct, ') — attempting to parse anyway.');
+							}
+							const buf = await r.arrayBuffer();
+							await processPdfData(buf);
+							console.info('Loaded PDF via fetch from', candidate);
+							loaded = true;
+							break;
+						}catch(fetchErr){
+							console.debug('fetch fallback failed for', candidate, fetchErr);
+							// continue to next candidate
+						}
+					}
+				}
+
+				if(!loaded){
+					console.warn('Automatic loading of', defaultName, 'failed for all candidates.');
+					// If PDF not found/blocked, try to load images from `irfan/` folder as a fallback,
+					// then try the current folder (./) before showing the final fallback UI.
+					try{
+						const tryFolders = async ()=>{
+							let found = await loadImagesFromFolder('irfan/');
+							if(found && found.length) return found;
+							// try current directory
+							found = await loadImagesFromFolder('./');
+							if(found && found.length) return found;
+							return [];
+						};
+						tryFolders().then(found=>{
+							if(found && found.length){
+								console.log('Loaded', found.length, 'images from folder fallback.');
+								images = found;
+								buildThumbnails();
+								showSlide(0);
+							}else{
+								showAutoloadFallback(defaultName, fileProtocolWarning);
+							}
+						}).catch(err=>{
+							console.debug('Error while loading images from folder fallback', err);
+							showAutoloadFallback(defaultName, fileProtocolWarning);
+						});
+					}catch(e){
+						console.debug('Unexpected error during folder fallback', e);
+						showAutoloadFallback(defaultName, fileProtocolWarning);
+					}
+				}
+			});
+
+			// show fallback UI when automatic loading fails
+			function showAutoloadFallback(filename, extraMsg){
+				const placeholder = document.getElementById('placeholder');
+				if(!placeholder) return;
+				placeholder.innerHTML = '';
+				const info = document.createElement('div');
+				info.style.color = '#fff';
+				info.style.textAlign = 'center';
+				info.style.maxWidth = '720px';
+					info.innerHTML = '<p style="font-size:18px;margin-bottom:8px">Gagal memuat <strong>'+filename+'</strong> secara otomatis.</p>'+
+						'<p style="margin-bottom:12px;color:#ddd">Jika file ada di folder yang sama namun tidak tampil karena batasan browser, jalankan server lokal atau periksa nama file.</p>';
+					if(extraMsg){
+						const em = document.createElement('p');
+						em.style.color = '#ffd9a6';
+						em.style.marginTop = '6px';
+						em.style.fontSize = '13px';
+						em.textContent = extraMsg;
+						info.appendChild(em);
+					}
+				// manual upload button removed per user preference
+				const hint = document.createElement('div');
+				hint.style.marginTop = '10px';
+				hint.style.color = '#bbb';
+				hint.style.fontSize = '13px';
+				hint.textContent = 'Alternatif: jalankan server lokal di folder ini dan buka slide.html via http://localhost:8000 untuk autoload otomatis.';
+				const code = document.createElement('pre');
+				code.style.background = 'rgba(0,0,0,0.4)';
+				code.style.padding = '8px';
+				code.style.borderRadius = '6px';
+				code.style.color = '#fff';
+				code.style.marginTop = '8px';
+				code.textContent = "# PowerShell (di folder d:\\Tugas\\Edit)\npython -m http.server 8000";
+				// manual upload button removed as requested
+				info.appendChild(hint);
+				info.appendChild(code);
+				placeholder.appendChild(info);
+			}
+	</script>
+</body>
+</html>
+
